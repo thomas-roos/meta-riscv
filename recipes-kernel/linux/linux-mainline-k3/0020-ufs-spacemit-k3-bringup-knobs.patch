@@ -1,0 +1,103 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] scsi: ufs: spacemit: k3: bring-up knobs for gear, rate, lanes, ATOP
+
+Debug only, not for upstream: make the HS gear, HS rate, lane count,
+PWM-only mode, the ATOP 0xC1/0xC2 values and ANA_HSGEAR_CTRL_ATTR settable on the kernel
+command line (ufs_spacemit.<name>=<value>) so the K3 CoM260 IFX link
+can be characterised without rebuilding. Defaults match the vendor
+driver (HS-G3 rate B, 2 lanes, ATOP 0x00/0x00, ANA_HSGEAR not written).
+
+Upstream-Status: Inappropriate [debug]
+Signed-off-by: Thomas Roos <thomas@exein.io>
+---
+--- a/drivers/ufs/host/ufs-spacemit.c
++++ b/drivers/ufs/host/ufs-spacemit.c
+@@ -25,6 +25,29 @@
+ #define ANA_EQ_CTRL_REG_ATTR		0x00CD
+ #define ANA_HSGEAR_CTRL_ATTR		0x00C1
+ 
++/* bring-up knobs, set on the kernel command line as ufs_spacemit.<name>=<value> */
++static uint hs_gear = UFS_HS_G3;
++module_param(hs_gear, uint, 0444);
++MODULE_PARM_DESC(hs_gear, "max HS gear (1-3)");
++static uint hs_rate = PA_HS_MODE_B;
++module_param(hs_rate, uint, 0444);
++MODULE_PARM_DESC(hs_rate, "HS rate series (1=A, 2=B)");
++static uint lanes = 2;
++module_param(lanes, uint, 0444);
++MODULE_PARM_DESC(lanes, "lanes per direction (1-2)");
++static bool pwm;
++module_param(pwm, bool, 0444);
++MODULE_PARM_DESC(pwm, "stay in PWM mode instead of HS");
++static uint atop_c1;
++module_param(atop_c1, uint, 0444);
++MODULE_PARM_DESC(atop_c1, "M-PHY ATOP register 0xC1 value");
++static int ana_hsgear = -1;
++module_param(ana_hsgear, int, 0444);
++MODULE_PARM_DESC(ana_hsgear, "ANA_HSGEAR_CTRL_ATTR value in apply_dev_quirks, -1 = do not write (vendor driver)");
++static uint atop_c2;
++module_param(atop_c2, uint, 0444);
++MODULE_PARM_DESC(atop_c2, "M-PHY ATOP register 0xC2 value");
++
+ #define UFS_SPACEMIT_K3_AXI_CLK_HZ	491520000UL
+ #define UFS_AXI_CLK_LOW_FREQ_HZ		409600000UL
+ 
+@@ -177,8 +200,8 @@
+ 	fsleep(20);
+ 
+ 	/* analog settings as in the SpacemiT vendor kernel (k3-br-v1.0.y) */
+-	ufshcd_writel(hba, 0x00, UFS_ATOP_BASE + (0xC1 << 2));
+-	ufshcd_writel(hba, 0x00, UFS_ATOP_BASE + (0xC2 << 2));
++	ufshcd_writel(hba, atop_c1, UFS_ATOP_BASE + (0xC1 << 2));
++	ufshcd_writel(hba, atop_c2, UFS_ATOP_BASE + (0xC2 << 2));
+ 	fsleep(20);
+ 
+ 	ufshcd_writel(hba, 0x0, UFS_PHY_MNG_BASE + UFS_MPHY_BKDR_CTRL);
+@@ -248,18 +271,20 @@
+ 		return;
+ 
+ 	memset(host_params, 0, sizeof(struct ufs_host_params));
+-	host_params->tx_lanes = UFS_SPACEMIT_K3_LIMIT_NUM_LANES_TX;
+-	host_params->rx_lanes = UFS_SPACEMIT_K3_LIMIT_NUM_LANES_RX;
+-	host_params->hs_rx_gear = UFS_SPACEMIT_K3_LIMIT_HSGEAR_RX;
+-	host_params->hs_tx_gear = UFS_SPACEMIT_K3_LIMIT_HSGEAR_TX;
++	host_params->tx_lanes = clamp(lanes, 1U, 2U);
++	host_params->rx_lanes = clamp(lanes, 1U, 2U);
++	host_params->hs_rx_gear = clamp(hs_gear, 1U, 3U);
++	host_params->hs_tx_gear = clamp(hs_gear, 1U, 3U);
+ 	host_params->pwm_rx_gear = UFS_SPACEMIT_K3_LIMIT_PWMGEAR_RX;
+ 	host_params->pwm_tx_gear = UFS_SPACEMIT_K3_LIMIT_PWMGEAR_TX;
+ 	host_params->rx_pwr_pwm = UFS_SPACEMIT_K3_LIMIT_RX_PWR_PWM;
+ 	host_params->tx_pwr_pwm = UFS_SPACEMIT_K3_LIMIT_TX_PWR_PWM;
+ 	host_params->rx_pwr_hs = pwr_hs;
+ 	host_params->tx_pwr_hs = pwr_hs;
+-	host_params->hs_rate = UFS_SPACEMIT_K3_LIMIT_HS_RATE;
+-	host_params->desired_working_mode = UFS_HS_MODE;
++	host_params->hs_rate = clamp(hs_rate, 1U, 2U);
++	host_params->desired_working_mode = pwm ? UFS_PWM_MODE : UFS_HS_MODE;
++	pr_info_once("ufs_spacemit: hs_gear=%u hs_rate=%u lanes=%u pwm=%d atop_c1=0x%x atop_c2=0x%x ana_hsgear=%d\n",
++		      hs_gear, hs_rate, lanes, pwm, atop_c1, atop_c2, ana_hsgear);
+ }
+ 
+ static int ufs_spacemit_link_startup_pre_change(struct ufs_hba *hba)
+@@ -403,7 +428,6 @@
+ 		/* TX_Min_ActivateTime */
+ 		{ UIC_ARG_MIB_SEL(TX_MIN_ACTIVATETIME, UIC_ARG_MPHY_TX_GEN_SEL_INDEX(0)), 0x0 },
+ 		{ UIC_ARG_MIB_SEL(TX_MIN_ACTIVATETIME, UIC_ARG_MPHY_TX_GEN_SEL_INDEX(1)), 0x0 },
+-		{ UIC_ARG_MIB(ANA_HSGEAR_CTRL_ATTR), 0x25 },
+ 	};
+ 	int err;
+ 
+@@ -420,6 +444,12 @@
+ 	if (err < 0)
+ 		return err;
+ 
++	if (ana_hsgear >= 0) {
++		err = ufshcd_dme_set(hba, UIC_ARG_MIB(ANA_HSGEAR_CTRL_ATTR), ana_hsgear);
++		if (err < 0)
++			return err;
++	}
++
+ 	return ufs_spacemit_wait_mphy_pll_lock(hba);
+ }
+ 

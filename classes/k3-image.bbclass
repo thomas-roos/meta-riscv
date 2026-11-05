@@ -12,6 +12,10 @@ do_image_wic[depends] += " \
 "
 do_image_wic[prefuncs] += "do_create_bootfs"
 
+# Extra kernel command line arguments, appended to commonargs in env_k3.txt
+K3_EXTRA_BOOTARGS ??= ""
+do_create_bootfs[vardeps] += "K3_EXTRA_BOOTARGS"
+
 python do_create_bootfs() {
     import subprocess, os, shutil, gzip, math
 
@@ -74,6 +78,10 @@ python do_create_bootfs() {
         bb.warn("No DTB files found")
     for dtb in dtbs:
         copy_file(dtb, os.path.join(dtb_subdir, dtb))
+        # The stock SpacemiT U-Boot in SPI NOR looks the DTB up by its
+        # product name, which uses underscores (k3_com260_ifx.dtb).
+        if '-' in dtb:
+            copy_file(dtb, os.path.join(dtb_subdir, dtb.replace('-', '_')))
 
     # 5. Calculate size and generate image (add 15% margin)
     total_size_kb = sum(os.path.getsize(os.path.join(root, f))
@@ -88,7 +96,7 @@ ramdisk_name={initrd_name}
 dtb_dir=spacemit/{kver_k3}
 ramdisk_addr=0x130000000
 loglevel=8
-commonargs=setenv bootargs plymouth.prefer-fbcon plymouth.ignore-serial-consoles
+commonargs=setenv bootargs plymouth.prefer-fbcon plymouth.ignore-serial-consoles {d.getVar("K3_EXTRA_BOOTARGS") or ""}
 """
     env_path = os.path.join(bootfs_dir, 'env_k3.txt')
     with open(env_path, 'w') as f:

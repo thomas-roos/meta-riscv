@@ -1,0 +1,50 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] scsi: ufs: spacemit: k3: match vendor M-PHY init sequence
+
+On the K3 CoM260 IFX (YMTC YMUS8B5TH1A1C1 UFS) the link never comes up
+with the submitted v7 driver: continuous PA/DL error events and
+query_descriptor err -5. The SpacemiT vendor kernel (linux-6.18,
+k3-br-v1.0.y) works on the same board. Align the M-PHY bring-up with it:
+1 ms settle time after each reset/power-up write, and write 0x00 to the
+ATOP analog registers 0xC1 and 0xC2 instead of 0x40 to 0xC2.
+
+Upstream-Status: Pending
+Signed-off-by: Thomas Roos <thomas@exein.io>
+---
+--- a/drivers/ufs/host/ufs-spacemit.c
++++ b/drivers/ufs/host/ufs-spacemit.c
+@@ -146,16 +146,19 @@
+ 
+ 	/* reset all mphy logical */
+ 	ufshcd_writel(hba, 0x003, UFS_PHY_MNG_BASE + UFS_MPHY_RST_CTRL);
++	fsleep(1000);
+ 
+ 	/* power up all */
+ 	ufshcd_writel(hba, MPHY_PU_ALL, UFS_PHY_MNG_BASE + UFS_MPHY_PU_CTRL);
++	fsleep(1000);
+ 
+ 	/* asserted ana_rx_hb8_reset */
+ 	ufshcd_writel(hba, 0xb7f, UFS_PHY_MNG_BASE + UFS_MPHY_PU_CTRL);
+-	fsleep(500);
++	fsleep(1000);
+ 
+ 	/* deasserted ana_rx_hb8_reset */
+ 	ufshcd_writel(hba, MPHY_PU_ALL, UFS_PHY_MNG_BASE + UFS_MPHY_PU_CTRL);
++	fsleep(1000);
+ 
+ 	/* Enable reference clock & deassert ufs device reset */
+ 	ufshcd_writel(hba, MPHY_DEVICE_REFCLK_OE | MPHY_DEVICE_HW_RESET,
+@@ -170,8 +173,12 @@
+ 	dev_dbg(hba->dev, "M-PHY PLL locked successfully\n");
+ 
+ 	ufshcd_writel(hba, 0x1, UFS_PHY_MNG_BASE + UFS_MPHY_BKDR_CTRL);
++	fsleep(20);
+ 
+-	ufshcd_writel(hba, 0x40, UFS_ATOP_BASE + (0xC2 << 2));
++	/* analog settings as in the SpacemiT vendor kernel (k3-br-v1.0.y) */
++	ufshcd_writel(hba, 0x00, UFS_ATOP_BASE + (0xC1 << 2));
++	ufshcd_writel(hba, 0x00, UFS_ATOP_BASE + (0xC2 << 2));
++	fsleep(20);
+ 
+ 	ufshcd_writel(hba, 0x0, UFS_PHY_MNG_BASE + UFS_MPHY_BKDR_CTRL);
+ 

@@ -46,6 +46,13 @@ SRC_URI:append:k3 = " \
         file://0013-riscv-dts-spacemit-k3-Add-UFS-support.patch \
         file://0014-scsi-ufs-spacemit-dt-bindings-Add-UFS-controller-for.patch \
         file://0015-scsi-ufs-spacemit-k3-Add-UFS-Host-Controller-driver.patch \
+        file://0016-ufs-spacemit-k3-match-vendor-mphy-init.patch \
+        file://0017-ufs-spacemit-k3-align-link-startup-and-hce-with-vendor.patch \
+        file://0018-ufs-spacemit-k3-reset-controller-and-set-axi-clock.patch \
+        file://0019-ufs-spacemit-k3-set-unipro-hclkdiv.patch \
+        file://0020-ufs-spacemit-k3-bringup-knobs.patch \
+        file://0021-ufs-spacemit-k3-dummy-frame-only-for-old-unipro.patch \
+        file://0022-ufs-spacemit-k3-program-device-ref-clock.patch \
         file://k3.cfg \
 "
 

@@ -1,0 +1,40 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] ufs: spacemit: k3: program the device reference clock
+
+The binding names the reference clock "ref", but the UFS core only parses
+a clock named "ref_clk" to fill hba->dev_ref_clk_freq. With it left at
+REF_CLK_FREQ_INVAL the core never writes bRefClkFreq, so the device keeps
+whatever reference frequency it defaults to before the HS gear switch.
+The vendor DT uses "ref_clk" and so gets bRefClkFreq = 19.2 MHz.
+
+Upstream-Status: Pending
+
+---
+--- a/drivers/ufs/host/ufs-spacemit.c	2026-11-05 06:18:49.006890655 +0100
++++ b/drivers/ufs/host/ufs-spacemit.c	2026-11-05 06:47:23.185664194 +0100
+@@ -497,7 +497,7 @@
+ 	if (!host)
+ 		return -ENOMEM;
+ 
+-	struct clk *aclk;
++	struct clk *aclk, *refclk;
+ 	int err;
+ 
+ 	/*
+@@ -526,6 +526,16 @@
+ 			 UFS_SPACEMIT_K3_AXI_CLK_HZ, err);
+ 	dev_info(dev, "axi clock %lu Hz\n", clk_get_rate(aclk));
+ 
++	/*
++	 * The binding names the reference clock "ref", so the core does not
++	 * pick up its rate and never programs bRefClkFreq. The vendor DT uses
++	 * "ref_clk" and so the device is set to 19.2 MHz before the HS switch.
++	 */
++	refclk = devm_clk_get(dev, "ref");
++	if (!IS_ERR(refclk))
++		ufshcd_parse_dev_ref_clk_freq(hba, refclk);
++	dev_info(dev, "device ref clock index %d\n", hba->dev_ref_clk_freq);
++
+ 	host->hba = hba;
+ 	ufshcd_set_variant(hba, host);
+ 	ufs_spacemit_advertise_quirks(hba);

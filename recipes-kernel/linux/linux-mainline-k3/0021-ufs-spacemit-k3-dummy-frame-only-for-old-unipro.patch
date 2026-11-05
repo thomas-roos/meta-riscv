@@ -1,0 +1,50 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] ufs: spacemit: k3: send dummy frames only to UniPro < 1.8 peers
+
+The vendor driver sends the "make UFS2.1 run GEAR3 + 2Lane" dummy frame
+sequence after link startup only when RX1 FSM reads 0xe and the peer
+UniPro version is below 1.8. The mainline driver sends it always, which
+leaves the HS link unusable with the UFS 3.1 device on the K3 CoM260
+(DL/PA errors after the power mode change).
+
+Upstream-Status: Pending
+
+---
+--- a/drivers/ufs/host/ufs-spacemit.c	2026-11-04 23:05:38.157951800 +0100
++++ b/drivers/ufs/host/ufs-spacemit.c	2026-11-05 06:18:49.006890655 +0100
+@@ -323,15 +323,31 @@
+ 
+ static int ufs_spacemit_link_startup_post_change(struct ufs_hba *hba)
+ {
+-	/* Add 0xe8 make UFS2.1 run GEAR3 + 2Lane@409M */
+-	static const struct ufshcd_dme_attr_val setup_attrs[] = {
++	/*
++	 * Send dummy frames (make UFS2.1 run GEAR3 + 2Lane@409M) only for
++	 * UniPro < 1.8 peers whose RX1 FSM is stuck, as the vendor driver
++	 * does. Doing it unconditionally breaks the HS link on UFS 3.x devices.
++	 */
++	static const struct ufshcd_dme_attr_val dummy_frame[] = {
+ 		{ UIC_ARG_MIB_SEL(0xe8, UIC_ARG_MPHY_TX_GEN_SEL_INDEX(0)), 0x97 },
+ 		{ UIC_ARG_MIB_SEL(0xe8, UIC_ARG_MPHY_TX_GEN_SEL_INDEX(0)), 0xd7 },
+ 		{ UIC_ARG_MIB_SEL(0xe8, UIC_ARG_MPHY_TX_GEN_SEL_INDEX(0)), 0x17 },
+-		{ UIC_ARG_MIB(DL_AFC0REQTIMEOUTVAL), UFS_DL_AFC0REQTIMEOUTVAL_MAX },
+ 	};
++	u32 rx1_fsm = 0, peer_ver = 0;
++	int err;
+ 
+-	return ufs_spacemit_dme_set(hba, setup_attrs, ARRAY_SIZE(setup_attrs));
++	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_REMOTEVERINFO), &peer_ver);
++	ufshcd_dme_get(hba, UIC_ARG_MIB_SEL(0xC1, UIC_ARG_MPHY_RX_GEN_SEL_INDEX(1)), &rx1_fsm);
++	dev_info(hba->dev, "link up: peer UniPro ver %u, rx1_fsm 0x%x\n", peer_ver, rx1_fsm);
++
++	if (rx1_fsm == 0xe && peer_ver < UFS_UNIPRO_VER_1_8) {
++		err = ufs_spacemit_dme_set(hba, dummy_frame, ARRAY_SIZE(dummy_frame));
++		if (err < 0)
++			return err;
++	}
++
++	return ufshcd_dme_set(hba, UIC_ARG_MIB(DL_AFC0REQTIMEOUTVAL),
++			      UFS_DL_AFC0REQTIMEOUTVAL_MAX);
+ }
+ 
+ static int ufs_spacemit_link_startup_notify(struct ufs_hba *hba,

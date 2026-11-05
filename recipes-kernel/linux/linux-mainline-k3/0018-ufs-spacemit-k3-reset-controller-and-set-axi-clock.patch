@@ -1,0 +1,59 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] scsi: ufs: spacemit: k3: reset controller and set AXI clock in init
+
+The vendor driver pulses the UFS AXI reset and sets the AXI clock to
+491.52 MHz before the host is initialised. The submitted driver only
+deasserts the reset, so the controller keeps the state U-Boot left, and
+never sets the clock rate although the UniPro/M-PHY timings assume
+491.52 MHz. Do both in ufs_spacemit_init().
+
+Upstream-Status: Pending
+Signed-off-by: Thomas Roos <thomas@exein.io>
+---
+--- a/drivers/ufs/host/ufs-spacemit.c
++++ b/drivers/ufs/host/ufs-spacemit.c
+@@ -25,6 +25,7 @@
+ #define ANA_EQ_CTRL_REG_ATTR		0x00CD
+ #define ANA_HSGEAR_CTRL_ATTR		0x00C1
+ 
++#define UFS_SPACEMIT_K3_AXI_CLK_HZ	491520000UL
+ #define UFS_AXI_CLK_LOW_FREQ_HZ		409600000UL
+ 
+ /* PHY register magic values */
+@@ -450,10 +451,35 @@
+ 	if (!host)
+ 		return -ENOMEM;
+ 
+-	rst = devm_reset_control_get_exclusive_deasserted(dev, NULL);
++	struct clk *aclk;
++	int err;
++
++	/*
++	 * As in the vendor driver: pulse the AXI reset so the controller does
++	 * not keep the state U-Boot left behind, and run the AXI clock at the
++	 * 491.52 MHz the UniPro/M-PHY timings are tuned for.
++	 */
++	rst = devm_reset_control_get_exclusive(dev, NULL);
+ 	if (IS_ERR(rst))
+ 		return dev_err_probe(dev, PTR_ERR(rst), "Failed to get reset control\n");
+ 
++	err = reset_control_assert(rst);
++	if (err)
++		return err;
++	fsleep(10);
++	err = reset_control_deassert(rst);
++	if (err)
++		return err;
++
++	aclk = devm_clk_get(dev, "axi");
++	if (IS_ERR(aclk))
++		return dev_err_probe(dev, PTR_ERR(aclk), "Failed to get axi clock\n");
++	err = clk_set_rate(aclk, UFS_SPACEMIT_K3_AXI_CLK_HZ);
++	if (err)
++		dev_warn(dev, "failed to set axi clock to %lu Hz: %d\n",
++			 UFS_SPACEMIT_K3_AXI_CLK_HZ, err);
++	dev_info(dev, "axi clock %lu Hz\n", clk_get_rate(aclk));
++
+ 	host->hba = hba;
+ 	ufshcd_set_variant(hba, host);
+ 	ufs_spacemit_advertise_quirks(hba);

@@ -1,0 +1,32 @@
+From: Thomas Roos <thomas@exein.io>
+Subject: [PATCH] scsi: ufs: spacemit: k3: set UniPro HCLKDIV like vendor driver
+
+The vendor driver ends its UniPro init sequence with UFS_HCLKDIV_REG =
+0xFC; the submitted driver defines the register but never sets it, so
+UniPro timers run with the reset default. It also clears
+ANA_HSGEAR_CTRL_ATTR after a power mode change, which the vendor driver
+does not do. Match the vendor driver in both places.
+
+Upstream-Status: Pending
+Signed-off-by: Thomas Roos <thomas@exein.io>
+---
+--- a/drivers/ufs/host/ufs-spacemit.c
++++ b/drivers/ufs/host/ufs-spacemit.c
+@@ -235,6 +235,8 @@
+ 		/* RX garbage cnt = 32 SI */
+ 		{ UIC_ARG_MIB_SEL(0x00F2, UIC_ARG_MPHY_RX_GEN_SEL_INDEX(0)), 0x9F },
+ 		{ UIC_ARG_MIB_SEL(0x00F2, UIC_ARG_MPHY_RX_GEN_SEL_INDEX(1)), 0x9F },
++		/* host clock divider, as in the vendor driver */
++		{ UIC_ARG_MIB(UFS_HCLKDIV_REG), 0xFC },
+ 	};
+ 
+ 	return ufs_spacemit_dme_set(hba, setup_attrs, ARRAY_SIZE(setup_attrs));
+@@ -370,8 +372,6 @@
+ 			return ret;
+ 
+ 		dev_dbg(hba->dev, "M-PHY PLL locked after power mode change\n");
+-		/* Set ANA_HSGEAR_CTRL_ATTR back to default value */
+-		ufshcd_dme_set(hba, UIC_ARG_MIB(ANA_HSGEAR_CTRL_ATTR), 0x00);
+ 		break;
+ 	default:
+ 		return -EINVAL;
